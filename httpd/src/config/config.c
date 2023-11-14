@@ -26,8 +26,8 @@ void print_config(struct config *config)
         if (i < config->nb_servers)
             printf("\n");
         printf("[[vhosts]]\n");
-        //printf("server_name = %.*s\n", (int)servers[i].server_name->size,
-        //       servers[i].server_name->data);
+        // printf("server_name = %.*s\n", (int)servers[i].server_name->size,
+        //        servers[i].server_name->data);
         printf("port = %s\n", servers[i].port);
         printf("ip = %s\n", servers[i].ip);
         printf("root_dir = %s\n", servers[i].root_dir);
@@ -188,7 +188,11 @@ struct config *parse_configuration(const char *path)
     }
     free(line);
     fclose(config_file);
-    print_config(config);
+    if (config->nb_servers == 0)
+    {
+        config_destroy(config);
+        return NULL;
+    }
 
     return config;
 }

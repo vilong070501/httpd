@@ -53,6 +53,8 @@ void string_concat_str(struct string *str, const char *to_concat, size_t size)
 
 void string_destroy(struct string *str)
 {
+    if (!str)
+        return;
     free(str->data);
     free(str);
 }
