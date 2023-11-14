@@ -19,19 +19,19 @@ void print_config(struct config *config)
     printf("log_file = %s\n", config->log_file);
     printf("log = %d\n", config->log);
 
+    struct server_config *servers = config->servers;
+
     for (size_t i = 0; i < config->nb_servers; i++)
     {
         if (i < config->nb_servers)
             printf("\n");
         printf("[[vhosts]]\n");
-        struct server_config *servers = config->servers;
-        //printf("server_name = %s\n", servers[i].server_name->data);
+        printf("server_name = %s\n", servers[i].server_name->data);
         printf("port = %s\n", servers[i].port);
         printf("ip = %s\n", servers[i].ip);
         printf("root_dir = %s\n", servers[i].root_dir);
         printf("default_file = %s\n", servers[i].default_file);
     }
-
 }
 
 char *extract_field(char *line)
@@ -90,8 +90,11 @@ int parse_vhosts_section(struct config *config, FILE *config_file)
     size_t length = 0;
     ssize_t nread = 0;
 
-    struct server_config vhost = { .server_name = NULL, .port = NULL,
-        .ip = NULL, .root_dir = NULL, .default_file = NULL };
+    struct server_config vhost = { .server_name = NULL,
+                                   .port = NULL,
+                                   .ip = NULL,
+                                   .root_dir = NULL,
+                                   .default_file = NULL };
     while ((nread = getline(&line, &length, config_file)) != -1)
     {
         if (fnmatch("server_name = *", line, FNM_NOESCAPE) == 0)
@@ -121,8 +124,7 @@ int parse_vhosts_section(struct config *config, FILE *config_file)
         }
     }
 
-    if (!vhost.server_name || !vhost.ip || !vhost.port
-        || !vhost.root_dir)
+    if (!vhost.server_name || !vhost.ip || !vhost.port || !vhost.root_dir)
     {
         config_destroy(config);
         free(line);
@@ -131,9 +133,8 @@ int parse_vhosts_section(struct config *config, FILE *config_file)
     }
 
     config->nb_servers++;
-    config->servers =
-        realloc(config->servers,
-                config->nb_servers * sizeof(struct server_config));
+    config->servers = realloc(
+        config->servers, config->nb_servers * sizeof(struct server_config));
     config->servers[config->nb_servers - 1] = vhost;
 
     free(line);
@@ -189,9 +190,10 @@ struct config *parse_configuration(const char *path)
 
 void config_destroy(struct config *config)
 {
+    struct server_config *servers = config->servers;
     for (size_t i = 0; i < config->nb_servers; i++)
     {
-        struct server_config vhost = config->servers[i];
+        struct server_config vhost = servers[i];
         string_destroy(vhost.server_name);
         free(vhost.port);
         free(vhost.ip);

@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "utils/string/string.h"
+#include "../utils/string/string.h"
 
 /*
 ** @brief Configuration structure
@@ -60,5 +60,7 @@ struct config *parse_configuration(const char *path);
 ** @param config The config struct to free
 */
 void config_destroy(struct config *config);
+
+void print_config(struct config *config);
 
 #endif /* !CONFIG_H */
