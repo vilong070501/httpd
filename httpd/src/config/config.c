@@ -26,7 +26,8 @@ void print_config(struct config *config)
         if (i < config->nb_servers)
             printf("\n");
         printf("[[vhosts]]\n");
-        printf("server_name = %s\n", servers[i].server_name->data);
+        //printf("server_name = %.*s\n", (int)servers[i].server_name->size,
+        //       servers[i].server_name->data);
         printf("port = %s\n", servers[i].port);
         printf("ip = %s\n", servers[i].ip);
         printf("root_dir = %s\n", servers[i].root_dir);
@@ -90,39 +91,47 @@ int parse_vhosts_section(struct config *config, FILE *config_file)
     size_t length = 0;
     ssize_t nread = 0;
 
-    struct server_config vhost = { .server_name = NULL,
-                                   .port = NULL,
-                                   .ip = NULL,
-                                   .root_dir = NULL,
-                                   .default_file = NULL };
+    config->nb_servers++;
+    config->servers = realloc(
+        config->servers, config->nb_servers * sizeof(struct server_config));
+    config->servers[config->nb_servers - 1].server_name = NULL;
+    config->servers[config->nb_servers - 1].port = NULL;
+    config->servers[config->nb_servers - 1].ip = NULL;
+    config->servers[config->nb_servers - 1].root_dir = NULL;
+    config->servers[config->nb_servers - 1].default_file = NULL;
     while ((nread = getline(&line, &length, config_file)) != -1)
     {
         if (fnmatch("server_name = *", line, FNM_NOESCAPE) == 0)
         {
             char *name = strchr(line, '=') + 2;
-            vhost.server_name = string_create(name, strlen(name));
+            config->servers[config->nb_servers - 1].server_name =
+                string_create(name, strlen(name) - 1);
         }
         else if (fnmatch("port = *", line, FNM_NOESCAPE) == 0)
         {
-            vhost.port = extract_field(line);
+            config->servers[config->nb_servers - 1].port = extract_field(line);
         }
         else if (fnmatch("ip = *", line, FNM_NOESCAPE) == 0)
         {
-            vhost.ip = extract_field(line);
+            config->servers[config->nb_servers - 1].ip = extract_field(line);
         }
         else if (fnmatch("root_dir = *", line, FNM_NOESCAPE) == 0)
         {
-            vhost.root_dir = extract_field(line);
+            config->servers[config->nb_servers - 1].root_dir =
+                extract_field(line);
         }
         else if (fnmatch("default_file = *", line, FNM_NOESCAPE) == 0)
         {
-            vhost.default_file = extract_field(line);
+            config->servers[config->nb_servers - 1].default_file =
+                extract_field(line);
         }
         else if (strcmp(line, "\n") == 0)
         {
             break;
         }
     }
+
+    struct server_config vhost = config->servers[config->nb_servers - 1];
 
     if (!vhost.server_name || !vhost.ip || !vhost.port || !vhost.root_dir)
     {
@@ -131,11 +140,6 @@ int parse_vhosts_section(struct config *config, FILE *config_file)
         fclose(config_file);
         return -1;
     }
-
-    config->nb_servers++;
-    config->servers = realloc(
-        config->servers, config->nb_servers * sizeof(struct server_config));
-    config->servers[config->nb_servers - 1] = vhost;
 
     free(line);
 
@@ -184,6 +188,7 @@ struct config *parse_configuration(const char *path)
     }
     free(line);
     fclose(config_file);
+    print_config(config);
 
     return config;
 }
