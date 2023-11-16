@@ -24,7 +24,6 @@ clean:
 	do					\
 		$(MAKE) -C $$I $@ || exit 1;	\
 	done
-	$(RM) httpd
 	$(RM) main.o
 
 include libs.mk

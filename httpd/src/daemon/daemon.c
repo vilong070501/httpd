@@ -1,5 +1,7 @@
 #define _GNU_SOURCE
 
+#include "daemon.h"
+
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -8,7 +10,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "daemon.h"
 #include "server/server.h"
 
 static int file_exists(const char *path)
