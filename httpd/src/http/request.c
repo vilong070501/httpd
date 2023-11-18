@@ -102,9 +102,18 @@ int check_version(struct string *version)
     return !string_compare_n_str(version, ver, version->size);
 }
 
-int check_missing_header(struct header *headers)
+int check_missing_header(struct header *headers, struct config *config)
 {
-    if (!get_header("Host", headers))
+    struct string *host;
+    if (!(host = get_header("Host", headers)))
+        return 0;
+    char combined[1024] = { 0 };
+    sprintf(combined, "%s:%s", config->servers->ip, config->servers->port);
+    if (string_compare_n_str(host, config->servers->server_name->data,
+                             host->size)
+            != 0
+        && string_compare_n_str(host, config->servers->ip, host->size) != 0
+        && string_compare_n_str(host, combined, host->size) != 0)
         return 0;
     return 1;
 }
@@ -158,7 +167,7 @@ int get_status_code(struct request *req, struct config *config)
 {
     if (!check_method(req->method))
         return 405;
-    if (!check_missing_header(req->headers))
+    if (!check_missing_header(req->headers, config))
         return 400;
     if (!check_version(req->version))
         return 505;

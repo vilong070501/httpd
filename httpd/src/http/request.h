@@ -10,7 +10,7 @@ int extract_version(struct request *req, const char *raw_request);
 int extract_headers(struct request *req, const char *raw_request);
 int check_method(enum method method);
 int check_version(struct string *version);
-int check_missing_header(struct header *headers);
+int check_missing_header(struct header *headers, struct config *config);
 int check_target(struct request *req, struct config *config);
 int get_status_code(struct request *req, struct config *config);
 struct string *get_reason_phrase(int status_code);
