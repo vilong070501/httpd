@@ -80,7 +80,7 @@ static int get_server_and_bind()
     return listen_fd;
 }
 
-static struct request *receive_request(int communicate_fd, size_t *to_read)
+static struct request *receive_request(int communicate_fd, int *to_read)
 {
     size_t request_length = 0, body_length = 0, valread;
     char *tmp;
@@ -95,7 +95,8 @@ static struct request *receive_request(int communicate_fd, size_t *to_read)
         if ((tmp = strstr(raw_request->data, DCRLF)))
         {
             int len = tmp - raw_request->data;
-            raw_request->data[len + 4] = '\0';
+            string_concat_str(raw_request, "\0", 1);
+            //raw_request->data[len + 4] = '\0';
             req = parse_request(raw_request->data);
             // print_request(req);
             if (!req)
@@ -153,8 +154,8 @@ int start_server(struct config *config)
     int listen_fd, communicate_fd;
     struct sockaddr address;
     socklen_t sin_size;
-    char *buffer;
-    size_t valread, to_read = 0;
+    size_t valread;
+    int to_read = 0;
 
     listen_fd = get_server_and_bind();
     if (listen_fd == -1)
@@ -181,14 +182,15 @@ int start_server(struct config *config)
 
         struct request *req = receive_request(communicate_fd, &to_read);
 
-        if (to_read)
+        if (to_read > 0)
         {
-            buffer = realloc(buffer, to_read + 1);
-            while (to_read)
+            char *buffer = calloc(to_read + 1, sizeof(char));
+            while (to_read > 0)
             {
                 valread = recv(communicate_fd, buffer, to_read, 0);
                 to_read -= valread;
             }
+            free(buffer);
         }
 
         build_and_send_response(req, config, communicate_fd);

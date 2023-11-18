@@ -14,7 +14,7 @@ TEST_BIN = tests/$(MODULE)_test
 $(MODULE): $(LIB)($(OBJ))
 
 check: $(TEST_OBJ) $(MODULE) $(LIBS)
-	$(CC) $< -o $(TEST_BIN) -Wl,--start-group $(LIB) $(addprefix $(SRC_DIR), $(LIBS)) -Wl,--end-group $(LDLIBS)
+	$(CC) $< -o $(TEST_BIN) -Wl,--start-group $(LIB) $(addprefix $(SRC_DIR), $(LIBS)) -Wl,--end-group $(LDLIBS) $(LDFLAGS)
 	$(TEST_BIN)
 
 include ../libs.mk
