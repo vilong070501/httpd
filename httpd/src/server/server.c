@@ -80,7 +80,8 @@ static int get_server_and_bind()
     return listen_fd;
 }
 
-static struct request *receive_request(int communicate_fd, int *to_read)
+static struct request *receive_request(int communicate_fd, int *to_read,
+                                       int *bad_request)
 {
     size_t request_length = 0, body_length = 0, valread;
     char *tmp;
@@ -96,12 +97,12 @@ static struct request *receive_request(int communicate_fd, int *to_read)
         {
             int len = tmp - raw_request->data;
             string_concat_str(raw_request, "\0", 1);
-            //raw_request->data[len + 4] = '\0';
+            // raw_request->data[len + 4] = '\0';
             req = parse_request(raw_request->data);
             // print_request(req);
             if (!req)
             {
-                // TODO: renvoyer bad request
+                *bad_request = 1;
             }
             struct string *content_length =
                 get_header("Content-Length", req->headers);
@@ -111,9 +112,15 @@ static struct request *receive_request(int communicate_fd, int *to_read)
                     realloc(content_length->data, content_length->size + 1);
                 content_length->data[content_length->size] = '\0';
                 body_length = atoi(content_length->data);
+                if (body_length <= 0)
+                    *bad_request = 1;
                 *to_read = body_length - (request_length - (len + 4));
-                break;
             }
+            else
+            {
+                *to_read = 0;
+            }
+            break;
         }
     }
     free(buffer);
@@ -122,10 +129,16 @@ static struct request *receive_request(int communicate_fd, int *to_read)
 }
 
 static void build_and_send_response(struct request *req, struct config *config,
-                                    int communicate_fd)
+                                    int communicate_fd, int bad_request)
 {
     /* Build response */
     struct response *resp = build_response(req, config);
+    if (bad_request)
+    {
+        resp->status_code = 404;
+        resp->reason = string_create("Bad Request", 11);
+    }
+
     struct string *content_length = get_header("Content-length", resp->headers);
     char *tmp = calloc(content_length->size + 1, sizeof(char));
     memcpy(tmp, content_length->data, content_length->size);
@@ -138,6 +151,7 @@ static void build_and_send_response(struct request *req, struct config *config,
 
     if (resp->status_code == 200 && req->method == GET)
     {
+        string_concat_str(req->target, "\0", 1);
         int file_target_fd = open(req->target->data, O_RDONLY);
         if (file_target_fd)
             sendfile(communicate_fd, file_target_fd, NULL, file_len);
@@ -155,7 +169,7 @@ int start_server(struct config *config)
     struct sockaddr address;
     socklen_t sin_size;
     size_t valread;
-    int to_read = 0;
+    int to_read = 0, bad_request = 0;
 
     listen_fd = get_server_and_bind();
     if (listen_fd == -1)
@@ -180,7 +194,8 @@ int start_server(struct config *config)
             return 1;
         }
 
-        struct request *req = receive_request(communicate_fd, &to_read);
+        struct request *req =
+            receive_request(communicate_fd, &to_read, &bad_request);
 
         if (to_read > 0)
         {
@@ -193,7 +208,7 @@ int start_server(struct config *config)
             free(buffer);
         }
 
-        build_and_send_response(req, config, communicate_fd);
+        build_and_send_response(req, config, communicate_fd, bad_request);
     }
     close(listen_fd);
     return 0;

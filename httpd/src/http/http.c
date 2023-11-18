@@ -78,6 +78,14 @@ void free_request(struct request *req)
 
 struct response *build_response(struct request *req, struct config *config)
 {
+    struct response *resp = calloc(1, sizeof(struct response));
+    if (!req)
+    {
+        return NULL;
+    }
+    resp->version = string_create(req->version->data, req->version->size);
+    resp->status_code = get_status_code(req, config);
+    resp->reason = get_reason_phrase(resp->status_code);
     /* Build headers */
     // Date
     struct header *date = calloc(1, sizeof(struct header));
@@ -89,7 +97,18 @@ struct response *build_response(struct request *req, struct config *config)
     struct header *content_length = calloc(1, sizeof(struct header));
     content_length->field_name = string_create("Content-length", 14);
     // TODO: Compute file length with fseek
-    content_length->value = string_create("123", 3);
+    struct string *file_name =
+        string_create(req->target->data, req->target->size);
+    string_concat_str(file_name, "\0", 1);
+    FILE *file = fopen(file_name->data, "r");
+    char file_len[1024] = { 0 };
+    if (!file)
+    {
+        sprintf(file_len, "%d", 0);
+    }
+    fseek(file, 0L, SEEK_END);
+    sprintf(file_len, "%ld", ftell(file));
+    content_length->value = string_create(file_len, strlen(file_len));
     // Connection
     struct header *connection = calloc(1, sizeof(struct header));
     connection->field_name = string_create("Connection", 10);
@@ -98,15 +117,6 @@ struct response *build_response(struct request *req, struct config *config)
     date->next = content_length;
     content_length->next = connection;
 
-    struct response *resp = calloc(1, sizeof(struct response));
-    if (!req)
-    {
-        free_header(date);
-        return NULL;
-    }
-    resp->version = string_create(req->version->data, req->version->size);
-    resp->status_code = get_status_code(req, config);
-    resp->reason = get_reason_phrase(resp->status_code);
     resp->headers = date;
 
     return resp;

@@ -104,7 +104,7 @@ int check_version(struct string *version)
 
 int check_missing_header(struct header *headers)
 {
-    if (!get_header("Content-Length", headers) || !get_header("Host", headers))
+    if (!get_header("Host", headers))
         return 0;
     return 1;
 }
