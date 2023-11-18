@@ -14,4 +14,7 @@ clean:
 	$(MAKE) -C src $@
 	$(RM) $(BINARY)
 
+check:
+	$(MAKE) -C src $@
+
 .PHONY: all

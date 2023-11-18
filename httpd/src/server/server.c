@@ -2,23 +2,32 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/sendfile.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <wait.h>
 
+#include "config/config.h"
+#include "http/helpers.h"
+#include "http/http.h"
+
 #define PORT "4242"
+#define BUFFER_LENGTH 1024
 
 void sigchild_handler(int sig)
 {
     (void)sig;
     int saved_errno = errno;
-    while (waitpid(-1, NULL, WNOHANG) > 0);
+    while (waitpid(-1, NULL, WNOHANG) > 0)
+        ;
     errno = saved_errno;
 }
 
@@ -71,58 +80,118 @@ static int get_server_and_bind()
     return listen_fd;
 }
 
-int start_server()
+static struct request *receive_request(int communicate_fd, size_t *to_read)
+{
+    size_t request_length = 0, body_length = 0, valread;
+    char *tmp;
+    struct request *req;
+    struct string *raw_request = string_create("", 0);
+    char *buffer = calloc(BUFFER_LENGTH, sizeof(char));
+    /* Receive request from client */
+    while ((valread = recv(communicate_fd, buffer, BUFFER_LENGTH, 0)))
+    {
+        string_concat_str(raw_request, buffer, valread);
+        request_length += valread;
+        if ((tmp = strstr(raw_request->data, DCRLF)))
+        {
+            int len = tmp - raw_request->data;
+            raw_request->data[len + 4] = '\0';
+            req = parse_request(raw_request->data);
+            // print_request(req);
+            if (!req)
+            {
+                // TODO: renvoyer bad request
+            }
+            struct string *content_length =
+                get_header("Content-Length", req->headers);
+            if (content_length)
+            {
+                content_length->data =
+                    realloc(content_length->data, content_length->size + 1);
+                content_length->data[content_length->size] = '\0';
+                body_length = atoi(content_length->data);
+                *to_read = body_length - (request_length - (len + 4));
+                break;
+            }
+        }
+    }
+    free(buffer);
+    string_destroy(raw_request);
+    return req;
+}
+
+static void build_and_send_response(struct request *req, struct config *config,
+                                    int communicate_fd)
+{
+    /* Build response */
+    struct response *resp = build_response(req, config);
+    struct string *content_length = get_header("Content-length", resp->headers);
+    char *tmp = calloc(content_length->size + 1, sizeof(char));
+    memcpy(tmp, content_length->data, content_length->size);
+    int file_len = atoi(tmp);
+    struct string *response = struct_response_to_string(resp);
+    // printf("%.*s\n", (int)response->size, response->data);
+
+    /* Send response to client */
+    send(communicate_fd, response->data, response->size, 0);
+
+    if (resp->status_code == 200 && req->method == GET)
+    {
+        int file_target_fd = open(req->target->data, O_RDONLY);
+        if (file_target_fd)
+            sendfile(communicate_fd, file_target_fd, NULL, file_len);
+    }
+
+    free_request(req);
+    free_response(resp);
+    string_destroy(response);
+    close(communicate_fd);
+}
+
+int start_server(struct config *config)
 {
     int listen_fd, communicate_fd;
-    struct sockaddr_in address;
+    struct sockaddr address;
     socklen_t sin_size;
-    struct sigaction sa;
-    char buffer[1024];
-    ssize_t valread;
+    char *buffer;
+    size_t valread, to_read = 0;
 
     listen_fd = get_server_and_bind();
     if (listen_fd == -1)
     {
-        fprintf(stderr, "Server failed to bind\n");
+        // fprintf(stderr, "Server failed to bind\n");
         return 1;
     }
 
     if (listen(listen_fd, 10) == -1)
     {
-        fprintf(stderr, "listen failed\n");
-        return 1;
-    }
-
-    sa.sa_handler = sigchild_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    if (sigaction(SIGCHLD, &sa, NULL) == -1)
-    {
-        fprintf(stderr, "sigaction failed\n");
+        // fprintf(stderr, "listen failed\n");
         return 1;
     }
 
     while (1)
     {
         sin_size = sizeof(address);
-        communicate_fd =
-            accept(listen_fd, (struct sockaddr *)&address, &sin_size);
+        communicate_fd = accept(listen_fd, &address, &sin_size);
         if (communicate_fd == -1)
         {
-            fprintf(stderr, "accept failed\n");
+            // fprintf(stderr, "accept failed\n");
             return 1;
         }
-        printf("New client connected\n");
 
-        while (
-            (valread = recv(communicate_fd, buffer, sizeof(buffer) - 1, 0)))
+        struct request *req = receive_request(communicate_fd, &to_read);
+
+        if (to_read)
         {
-            if (send(communicate_fd, buffer, valread, 0) == -1)
-                fprintf(stderr, "send failed\n");
-            memset(buffer, 0, 1024);
+            buffer = realloc(buffer, to_read + 1);
+            while (to_read)
+            {
+                valread = recv(communicate_fd, buffer, to_read, 0);
+                to_read -= valread;
+            }
         }
-        printf("Client disconnected\n");
-        close(communicate_fd);
+
+        build_and_send_response(req, config, communicate_fd);
     }
     close(listen_fd);
     return 0;

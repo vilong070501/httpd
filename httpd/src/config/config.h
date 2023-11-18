@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "utils/string/string.h"
+#include "utils/string.h"
 
 /*
 ** @brief Configuration structure

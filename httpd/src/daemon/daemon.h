@@ -1,6 +1,8 @@
 #ifndef DAEMON_H
 #define DAEMON_H
 
-int daemonize(char *action, char *pid_file_path);
+#include "config/config.h"
+
+int daemonize(char *action, struct config *config);
 
 #endif /* !DAEMON_H */

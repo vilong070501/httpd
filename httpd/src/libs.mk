@@ -12,3 +12,8 @@ daemon/libdaemon.a:
 server/libserver.a:
 	$(MAKE) -C $(SRC_DIR)server
 
+logger/liblogger.a:
+	$(MAKE) -C $(SRC_DIR)logger
+
+http/libhttp.a:
+	$(MAKE) -C $(SRC_DIR)http

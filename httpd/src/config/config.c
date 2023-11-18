@@ -94,11 +94,12 @@ int parse_vhosts_section(struct config *config, FILE *config_file)
     config->nb_servers++;
     config->servers = realloc(
         config->servers, config->nb_servers * sizeof(struct server_config));
-    config->servers[config->nb_servers - 1].server_name = NULL;
-    config->servers[config->nb_servers - 1].port = NULL;
-    config->servers[config->nb_servers - 1].ip = NULL;
-    config->servers[config->nb_servers - 1].root_dir = NULL;
-    config->servers[config->nb_servers - 1].default_file = NULL;
+    struct server_config *vhost = config->servers + config->nb_servers - 1;
+    vhost->server_name = NULL;
+    vhost->port = NULL;
+    vhost->ip = NULL;
+    vhost->root_dir = NULL;
+    vhost->default_file = NULL;
     while ((nread = getline(&line, &length, config_file)) != -1)
     {
         if (fnmatch("server_name = *", line, FNM_NOESCAPE) == 0)
@@ -131,14 +132,16 @@ int parse_vhosts_section(struct config *config, FILE *config_file)
         }
     }
 
-    struct server_config vhost = config->servers[config->nb_servers - 1];
-
-    if (!vhost.server_name || !vhost.ip || !vhost.port || !vhost.root_dir)
+    if (!vhost->server_name || !vhost->ip || !vhost->port || !vhost->root_dir)
     {
         config_destroy(config);
         free(line);
         fclose(config_file);
         return -1;
+    }
+    if (!vhost->default_file)
+    {
+        vhost->default_file = strdup("index.html");
     }
 
     free(line);

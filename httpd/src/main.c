@@ -9,6 +9,7 @@
 
 #include "config/config.h"
 #include "daemon/daemon.h"
+#include "logger/logger.h"
 #include "server/server.h"
 
 static int dry_run;
@@ -106,14 +107,19 @@ int main(int argc, char **argv)
                     config_file);
             ret = 2;
         }
+        config_destroy(config);
         free(daemon_flag);
         free(config_file);
         return ret;
     }
     if (strlen(daemon_flag) > 0)
-        ret = daemonize(daemon_flag, config->pid_file);
+    {
+        ret = daemonize(daemon_flag, config);
+    }
     else
-        start_server();
+    {
+        start_server(config);
+    }
 
     config_destroy(config);
     free(daemon_flag);

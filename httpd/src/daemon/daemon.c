@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "config/config.h"
 #include "server/server.h"
 
 static int file_exists(const char *path)
@@ -44,9 +45,10 @@ void sigint_handler(int sig)
     _exit(EXIT_SUCCESS);
 }
 
-static int start_daemon(const char *pid_file_path, int exist)
+static int start_daemon(struct config *config, int exist)
 {
     FILE *pid_file;
+    char *pid_file_path = config->pid_file;
     if (exist)
     {
         pid_file = fopen(pid_file_path, "r");
@@ -72,7 +74,7 @@ static int start_daemon(const char *pid_file_path, int exist)
             return 1;
         }
         /* Child process: start the server */
-        return start_server();
+        return start_server(config);
     }
     else
     {
@@ -108,13 +110,14 @@ static int stop_daemon(const char *pid_file_path, int exist)
     return 0;
 }
 
-int daemonize(char *action, char *pid_file_path)
+int daemonize(char *action, struct config *config)
 {
     int ret = 0;
+    char *pid_file_path = config->pid_file;
     int exist = file_exists(pid_file_path);
     if (strcmp(action, "start") == 0)
     {
-        ret = start_daemon(pid_file_path, exist);
+        ret = start_daemon(config, exist);
     }
     else if (strcmp(action, "stop") == 0)
     {
@@ -127,7 +130,7 @@ int daemonize(char *action, char *pid_file_path)
     else if (strcmp(action, "restart") == 0)
     {
         stop_daemon(pid_file_path, exist);
-        ret = start_daemon(pid_file_path, exist);
+        ret = start_daemon(config, exist);
     }
     return ret;
 }
