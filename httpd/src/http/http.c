@@ -96,18 +96,18 @@ struct response *build_response(struct request *req, struct config *config)
     // Content-length
     struct header *content_length = calloc(1, sizeof(struct header));
     content_length->field_name = string_create("Content-length", 14);
-    // TODO: Compute file length with fseek
-    struct string *file_name =
-        string_create(req->target->data, req->target->size);
-    string_concat_str(file_name, "\0", 1);
-    FILE *file = fopen(file_name->data, "r");
+    string_concat_str(req->target, "\0", 1);
     char file_len[1024] = { 0 };
-    if (!file)
+    if (resp->status_code == 200)
     {
-        sprintf(file_len, "%d", 0);
+        FILE *file = fopen(req->target->data, "r");
+        if (!file)
+        {
+            sprintf(file_len, "%d", 0);
+        }
+        fseek(file, 0L, SEEK_END);
+        sprintf(file_len, "%ld", ftell(file));
     }
-    fseek(file, 0L, SEEK_END);
-    sprintf(file_len, "%ld", ftell(file));
     content_length->value = string_create(file_len, strlen(file_len));
     // Connection
     struct header *connection = calloc(1, sizeof(struct header));
