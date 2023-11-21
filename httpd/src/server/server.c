@@ -113,8 +113,11 @@ static struct request *receive_request(int communicate_fd, int *to_read)
                     body_length = 0;
                 else
                 {
-                    string_concat_str(content_length, "\0", 1);
-                    body_length = atoi(content_length->data);
+                    struct string *len = string_create(content_length->data,
+                                                       content_length->size);
+                    string_concat_str(len, "\0", 1);
+                    body_length = atoi(len->data);
+                    string_destroy(len);
                 }
                 *to_read = body_length - (request_length - (len + 4));
             }

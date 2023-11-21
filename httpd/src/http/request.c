@@ -159,11 +159,15 @@ int check_missing_header(struct header *headers, struct config *config)
                 if (!isdigit(content_length->data[i]))
                     return 0;
             }
-            string_concat_str(content_length, "\0", 1);
-            if (atoi(content_length->data) <= 0)
+            struct string *tmp =
+                string_create(content_length->data, content_length->size);
+            string_concat_str(tmp, "\0", 1);
+            if (atoi(tmp->data) <= 0)
             {
+                string_destroy(tmp);
                 return 0;
             }
+            string_destroy(tmp);
         }
     }
     return 1;
