@@ -174,7 +174,7 @@ static void read_body(int to_read, int communicate_fd)
     }
 }
 
-int start_server(struct config *config, FILE *log_file __attribute__((unused)))
+int start_server(struct config *config, FILE *log_file)
 {
     int listen_fd = -1;
     int communicate_fd = -1;
