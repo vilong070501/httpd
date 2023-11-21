@@ -155,7 +155,7 @@ int main(int argc, char **argv)
     else
     {
         log_file = get_log_file(config->log, false, config->log_file);
-        start_server(config, log_file);
+        ret = start_server(config, log_file);
     }
 
     fclose(log_file);

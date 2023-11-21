@@ -23,12 +23,14 @@
 
 #define BUFFER_LENGTH 1024
 
-void sigchild_handler(int sig __attribute__((unused)))
+static int signal_catched = 0;
+
+void signal_handler(int sig)
 {
-    int saved_errno = errno;
-    while (waitpid(-1, NULL, WNOHANG) > 0)
-        ;
-    errno = saved_errno;
+    if (sig == SIGINT || sig == SIGTSTP || sig == SIGPIPE)
+    {
+        signal_catched = 1;
+    }
 }
 
 static int get_server_and_bind(struct server_config *servers)
@@ -155,13 +157,30 @@ static struct response *build_and_send_response(struct request *req,
     return resp;
 }
 
+static void read_body(int to_read, int communicate_fd)
+{
+    size_t valread;
+    if (to_read > 0)
+    {
+        char *buffer = calloc(to_read + 1, sizeof(char));
+        while (to_read > 0)
+        {
+            if (signal_catched)
+                break;
+            valread = recv(communicate_fd, buffer, to_read, 0);
+            to_read -= valread;
+        }
+        free(buffer);
+    }
+}
+
 int start_server(struct config *config, FILE *log_file __attribute__((unused)))
 {
     int listen_fd = -1;
     int communicate_fd = -1;
     struct sockaddr client_addrinfo;
     socklen_t sin_size = sizeof(struct sockaddr);
-    size_t valread;
+    struct sigaction sa = { 0 };
     int to_read = 0;
 
     listen_fd = get_server_and_bind(config->servers);
@@ -177,33 +196,31 @@ int start_server(struct config *config, FILE *log_file __attribute__((unused)))
         return 1;
     }
 
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTSTP, &sa, NULL);
+
     while (1)
     {
         communicate_fd = accept(listen_fd, &client_addrinfo, &sin_size);
+        if (communicate_fd == -1)
+        {
+            return 1;
+        }
+
+        // If we catched a signal, break the lopp and clean up
+
         void *tmp = &client_addrinfo;
         struct sockaddr_in *addr = tmp;
         char client_ip[1024] = { 0 };
         inet_ntop(AF_INET, &addr->sin_addr, client_ip, INET_ADDRSTRLEN);
-        if (communicate_fd == -1)
-        {
-            // fprintf(stderr, "accept failed\n");
-            return 1;
-        }
 
         struct request *req = receive_request(communicate_fd, &to_read);
         struct log_info *info =
             build_log_info(config->servers->server_name, req, client_ip);
 
-        if (to_read > 0)
-        {
-            char *buffer = calloc(to_read + 1, sizeof(char));
-            while (to_read > 0)
-            {
-                valread = recv(communicate_fd, buffer, to_read, 0);
-                to_read -= valread;
-            }
-            free(buffer);
-        }
+        read_body(to_read, communicate_fd);
 
         struct response *resp =
             build_and_send_response(req, config, communicate_fd);
@@ -211,7 +228,7 @@ int start_server(struct config *config, FILE *log_file __attribute__((unused)))
         log_request(log_file, info);
         log_response(log_file, info);
         free_request(req);
-        free(resp);
+        free_response(resp);
         free_log_info(info);
     }
     close(listen_fd);
