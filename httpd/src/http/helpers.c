@@ -7,10 +7,12 @@
 void print_header(struct header *header)
 {
     struct header *tmp = header;
+    int name_len = tmp->field_name->size;
+    int value_len = tmp->value->size;
     while (tmp)
     {
-        printf("%.*s: %.*s\n", (int)tmp->field_name->size,
-               tmp->field_name->data, (int)tmp->value->size, tmp->value->data);
+        printf("%.*s: %.*s\n", name_len, tmp->field_name->data, value_len,
+               tmp->value->data);
         tmp = tmp->next;
     }
 }
@@ -33,9 +35,11 @@ void print_method(enum method method)
 
 void print_request(struct request *req)
 {
+    int target_len = req->target->size;
+    int version_len = req->version->size;
     print_method(req->method);
-    printf("Target: %.*s\n", (int)req->target->size, req->target->data);
-    printf("Version: %.*s\n", (int)req->version->size, req->version->data);
+    printf("Target: %.*s\n", target_len, req->target->data);
+    printf("Version: %.*s\n", version_len, req->version->data);
     printf("Headers: \n");
     print_header(req->headers);
 }

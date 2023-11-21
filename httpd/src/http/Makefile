@@ -1,7 +1,7 @@
 include ../flags.mk
 
 MODULE = http
-OBJ = $(MODULE).o helpers.o request.o
+OBJ = $(MODULE).o helpers.o request.o response.o
 LIB = lib$(MODULE).a
 
 LIBS = # Other modules your library may be dependent on

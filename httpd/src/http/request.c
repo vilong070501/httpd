@@ -25,7 +25,7 @@ int extract_target(struct request *req, const char *raw_request)
     // TODO: How to compute this len ???
     int target_len = strcspn(raw_request, SP);
     struct string *target = string_create(raw_request, target_len);
-    if (!target)
+    if (!target || target->data[0] != '/')
         return -1;
     req->target = target;
     return target_len;
@@ -42,10 +42,24 @@ int extract_version(struct request *req, const char *raw_request)
     return version_len;
 }
 
+static int is_header_exist(const char *name, int len, struct header *headers)
+{
+    int exist = 0;
+    char *tmp = calloc(len + 1, sizeof(char));
+    memcpy(tmp, name, len);
+    if (get_header(tmp, headers))
+    {
+        exist = 1;
+    }
+    free(tmp);
+    return exist;
+}
+
 int extract_headers(struct request *req, const char *raw_request)
 {
     int total_len = 0;
-    struct header *header = NULL, *last = NULL;
+    struct header *header = NULL;
+    struct header *last = NULL;
     while (raw_request[0] != '\r' || raw_request[1] != '\n')
     {
         last = header;
@@ -58,11 +72,17 @@ int extract_headers(struct request *req, const char *raw_request)
         // Field-name
         // TODO: This len
         int name_len = strcspn(raw_request, ":");
+        if (name_len <= 0 || raw_request[name_len - 1] == '0')
+        {
+            return -1;
+        }
         header->field_name = string_create(raw_request, name_len);
         if (!header->field_name)
         {
             return -1;
         }
+        if (is_header_exist(header->field_name->data, name_len, last))
+            return -1;
         raw_request += name_len + 1;
         total_len += name_len + 1;
 
@@ -76,9 +96,19 @@ int extract_headers(struct request *req, const char *raw_request)
         // Value
         // TODO: This len
         int value_len = strcspn(raw_request, CRLF);
-        header->value = string_create(raw_request, value_len);
+        int value_without_space_len = 0;
+        while (value_without_space_len < value_len)
+        {
+            if (raw_request[value_without_space_len] != ' ')
+                value_without_space_len++;
+            else
+                break;
+        }
+        header->value = string_create(raw_request, value_without_space_len);
         if (!header->value)
+        {
             return -1;
+        }
         raw_request += value_len + 2;
         total_len += value_len + 2;
 
@@ -104,8 +134,9 @@ int check_version(struct string *version)
 
 int check_missing_header(struct header *headers, struct config *config)
 {
-    struct string *host;
-    if (!(host = get_header("Host", headers)))
+    /* Check Host field */
+    struct string *host = get_header("Host", headers);
+    if (!host || host->size == 0)
         return 0;
     char combined[1024] = { 0 };
     sprintf(combined, "%s:%s", config->servers->ip, config->servers->port);
@@ -115,6 +146,26 @@ int check_missing_header(struct header *headers, struct config *config)
         && string_compare_n_str(host, config->servers->ip, host->size) != 0
         && string_compare_n_str(host, combined, host->size) != 0)
         return 0;
+    /* Check Content-Length field */
+    struct string *content_length = get_header("Content-Length", headers);
+    if (content_length)
+    {
+        if (string_compare_n_str(content_length, "0", 1) == 0)
+            return 1;
+        else
+        {
+            for (size_t i = 0; i < content_length->size; i++)
+            {
+                if (!isdigit(content_length->data[i]))
+                    return 0;
+            }
+            string_concat_str(content_length, "\0", 1);
+            if (atoi(content_length->data) <= 0)
+            {
+                return 0;
+            }
+        }
+    }
     return 1;
 }
 
@@ -131,7 +182,7 @@ int check_target(struct request *req, struct config *config)
     {
         char *tar = calloc(req->target->size + 1, sizeof(char));
         memcpy(tar, req->target->data, req->target->size);
-        sprintf(path, "%s/%s", vhost->root_dir, tar);
+        sprintf(path, "%s%s", vhost->root_dir, tar);
         free(tar);
     }
 
@@ -161,54 +212,4 @@ int check_target(struct request *req, struct config *config)
     // TODO: strlen(path)
     req->target = string_create(path, strlen(path));
     return 1;
-}
-
-int get_status_code(struct request *req, struct config *config)
-{
-    if (!check_method(req->method))
-        return 405;
-    if (!check_missing_header(req->headers, config))
-        return 400;
-    if (!check_version(req->version))
-        return 505;
-    int target_check = check_target(req, config);
-    if (target_check == -1)
-        return 404;
-    else if (target_check == 0)
-        return 403;
-    return 200;
-}
-
-struct string *get_reason_phrase(int status_code)
-{
-    switch (status_code)
-    {
-    case 400:
-        return string_create("Bad Request", 11);
-    case 403:
-        return string_create("Forbidden", 9);
-    case 404:
-        return string_create("Not Found", 9);
-    case 405:
-        return string_create("Method Not Allowed", 18);
-    case 505:
-        return string_create("HTTP Version Not Supported", 26);
-    default:
-        return string_create("OK", 2);
-    }
-}
-
-struct string *get_header(const char *header_name, struct header *headers)
-{
-    struct header *tmp = headers;
-    while (tmp != NULL
-           && (tmp->field_name->size != strlen(header_name)
-               || string_compare_n_str(tmp->field_name, header_name,
-                                       tmp->field_name->size)
-                   != 0))
-        tmp = tmp->next;
-
-    if (!tmp)
-        return NULL;
-    return tmp->value;
 }

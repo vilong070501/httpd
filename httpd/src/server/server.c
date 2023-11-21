@@ -18,34 +18,36 @@
 #include "config/config.h"
 #include "http/helpers.h"
 #include "http/http.h"
+#include "http/response.h"
+#include "logger/logger.h"
 
-#define PORT "4242"
 #define BUFFER_LENGTH 1024
 
-void sigchild_handler(int sig)
+void sigchild_handler(int sig __attribute__((unused)))
 {
-    (void)sig;
     int saved_errno = errno;
     while (waitpid(-1, NULL, WNOHANG) > 0)
         ;
     errno = saved_errno;
 }
 
-static int get_server_and_bind()
+static int get_server_and_bind(struct server_config *servers)
 {
-    struct addrinfo hints, *server_info, *p;
-    int listen_fd;
+    struct addrinfo hints;
+    struct addrinfo *server_info = NULL;
+    struct addrinfo *p = NULL;
+    int listen_fd = -1;
     int yes = 1;
-    int rv;
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    if ((rv = getaddrinfo(NULL, PORT, &hints, &server_info)) != 0)
+    /* TODO: Rework this when dealing with multiple vhost */
+    if ((getaddrinfo(NULL, servers->port, &hints, &server_info)) != 0)
     {
-        fprintf(stderr, "getaddrinfo failed\n");
+        // fprintf(stderr, "getaddrinfo failed\n");
         return 1;
     }
 
@@ -59,7 +61,7 @@ static int get_server_and_bind()
         if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes))
             == -1)
         {
-            fprintf(stderr, "setsockopt failed\n");
+            // fprintf(stderr, "setsockopt failed\n");
             return 1;
         }
 
@@ -80,12 +82,13 @@ static int get_server_and_bind()
     return listen_fd;
 }
 
-static struct request *receive_request(int communicate_fd, int *to_read,
-                                       int *bad_request)
+static struct request *receive_request(int communicate_fd, int *to_read)
 {
-    size_t request_length = 0, body_length = 0, valread;
-    char *tmp;
-    struct request *req;
+    int request_length = 0;
+    int body_length = 0;
+    int valread = 0;
+    char *tmp = NULL;
+    struct request *req = NULL;
     struct string *raw_request = string_create("", 0);
     char *buffer = calloc(BUFFER_LENGTH, sizeof(char));
     /* Receive request from client */
@@ -97,28 +100,23 @@ static struct request *receive_request(int communicate_fd, int *to_read,
         {
             int len = tmp - raw_request->data;
             string_concat_str(raw_request, "\0", 1);
-            // raw_request->data[len + 4] = '\0';
             req = parse_request(raw_request->data);
-            // print_request(req);
             if (!req)
             {
-                *bad_request = 1;
+                break;
             }
             struct string *content_length =
                 get_header("Content-Length", req->headers);
             if (content_length)
             {
-                content_length->data =
-                    realloc(content_length->data, content_length->size + 1);
-                content_length->data[content_length->size] = '\0';
-                body_length = atoi(content_length->data);
-                if (body_length <= 0)
-                    *bad_request = 1;
+                if (string_compare_n_str(content_length, "0", 1) == 0)
+                    body_length = 0;
+                else
+                {
+                    string_concat_str(content_length, "\0", 1);
+                    body_length = atoi(content_length->data);
+                }
                 *to_read = body_length - (request_length - (len + 4));
-            }
-            else
-            {
-                *to_read = 0;
             }
             break;
         }
@@ -128,28 +126,20 @@ static struct request *receive_request(int communicate_fd, int *to_read,
     return req;
 }
 
-static void build_and_send_response(struct request *req, struct config *config,
-                                    int communicate_fd, int bad_request)
+static struct response *build_and_send_response(struct request *req,
+                                                struct config *config,
+                                                int communicate_fd)
 {
-    /* Build response */
+    /* Build and send response to client */
     struct response *resp = build_response(req, config);
-    if (bad_request)
-    {
-        resp->status_code = 404;
-        resp->reason = string_create("Bad Request", 11);
-    }
-
-    struct string *content_length = get_header("Content-length", resp->headers);
-    char *tmp = calloc(content_length->size + 1, sizeof(char));
-    memcpy(tmp, content_length->data, content_length->size);
-    int file_len = atoi(tmp);
     struct string *response = struct_response_to_string(resp);
-    // printf("%.*s\n", (int)response->size, response->data);
-
-    /* Send response to client */
     send(communicate_fd, response->data, response->size, 0);
 
-    if (resp->status_code == 200 && req->method == GET)
+    /* Send body content */
+    struct string *content_length = get_header("Content-length", resp->headers);
+    string_concat_str(content_length, "\0", 1);
+    int file_len = atoi(content_length->data);
+    if (file_len > 0 && resp->status_code == 200 && req->method == GET)
     {
         string_concat_str(req->target, "\0", 1);
         int file_target_fd = open(req->target->data, O_RDONLY);
@@ -157,21 +147,21 @@ static void build_and_send_response(struct request *req, struct config *config,
             sendfile(communicate_fd, file_target_fd, NULL, file_len);
     }
 
-    free_request(req);
-    free_response(resp);
     string_destroy(response);
     close(communicate_fd);
+    return resp;
 }
 
-int start_server(struct config *config)
+int start_server(struct config *config, FILE *log_file __attribute__((unused)))
 {
-    int listen_fd, communicate_fd;
-    struct sockaddr address;
-    socklen_t sin_size;
+    int listen_fd = -1;
+    int communicate_fd = -1;
+    struct sockaddr client_addrinfo;
+    socklen_t sin_size = sizeof(struct sockaddr);
     size_t valread;
-    int to_read = 0, bad_request = 0;
+    int to_read = 0;
 
-    listen_fd = get_server_and_bind();
+    listen_fd = get_server_and_bind(config->servers);
     if (listen_fd == -1)
     {
         // fprintf(stderr, "Server failed to bind\n");
@@ -186,16 +176,20 @@ int start_server(struct config *config)
 
     while (1)
     {
-        sin_size = sizeof(address);
-        communicate_fd = accept(listen_fd, &address, &sin_size);
+        communicate_fd = accept(listen_fd, &client_addrinfo, &sin_size);
+        void *tmp = &client_addrinfo;
+        struct sockaddr_in *addr = tmp;
+        char client_ip[1024] = { 0 };
+        inet_ntop(AF_INET, &addr->sin_addr, client_ip, INET_ADDRSTRLEN);
         if (communicate_fd == -1)
         {
             // fprintf(stderr, "accept failed\n");
             return 1;
         }
 
-        struct request *req =
-            receive_request(communicate_fd, &to_read, &bad_request);
+        struct request *req = receive_request(communicate_fd, &to_read);
+        struct log_info *info =
+            build_log_info(config->servers->server_name, req, client_ip);
 
         if (to_read > 0)
         {
@@ -208,7 +202,14 @@ int start_server(struct config *config)
             free(buffer);
         }
 
-        build_and_send_response(req, config, communicate_fd, bad_request);
+        struct response *resp =
+            build_and_send_response(req, config, communicate_fd);
+        set_status_code(info, resp->status_code);
+        log_request(log_file, info);
+        log_response(log_file, info);
+        free_request(req);
+        free(resp);
+        free_log_info(info);
     }
     close(listen_fd);
     return 0;

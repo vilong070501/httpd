@@ -61,68 +61,105 @@ static int check_options(int argc, char **argv, char *daemon_flag,
     return 0;
 }
 
-int main(int argc, char **argv)
+void free_pointers(char *daemon, char *config_file)
 {
-    /* Check for options */
-    if (argc < 2)
-    {
-        fprintf(stderr,
-                "Usage: ./httpd [--dry-run] [-a (start | stop | reload "
-                "| restart)] server.conf\n");
-        return 1;
-    }
-    char *daemon_flag = calloc(1024, sizeof(char));
-    char *config_file = calloc(1024, sizeof(char));
+    free(daemon);
+    free(config_file);
+}
 
-    int ret = 0;
-
-    if ((ret = check_options(argc, argv, daemon_flag, config_file)) == 1)
-    {
-        free(daemon_flag);
-        free(config_file);
-        return 1;
-    }
-
+static int check_action(const char *daemon_flag)
+{
     if (strlen(daemon_flag) != 0 && (strcmp(daemon_flag, "start") != 0)
         && (strcmp(daemon_flag, "stop") != 0)
         && (strcmp(daemon_flag, "reload") != 0)
         && (strcmp(daemon_flag, "restart") != 0))
     {
         fprintf(stderr,
-                "Please choose between these 4 values for option -a: start | "
-                "stop | reload | restart\n");
-        free(daemon_flag);
-        free(config_file);
+                "Please choose between these 4 values for option -a: "
+                "start | stop | reload | restart\n");
+        return 1;
+    }
+    return 0;
+}
+
+FILE *get_log_file(bool log, bool daemonized, char *log_file)
+{
+    if (!log)
+        return NULL;
+    if (!daemonized)
+    {
+        if (!log_file)
+            return stdout;
+        else
+            return fopen(log_file, "w+");
+    }
+    else
+    {
+        if (!log_file)
+            return fopen("HTTPd.log", "w+");
+        else
+            return fopen(log_file, "w+");
+    }
+}
+
+int main(int argc, char **argv)
+{
+    /* Check for options */
+    if (argc < 2)
+    {
+        fprintf(stderr,
+                "Usage: ./httpd [--dry-run] [-a (start | stop | "
+                "reload | restart)] server.conf\n");
+        return 1;
+    }
+    char *daemon_flag = calloc(1024, sizeof(char));
+    char *config_file = calloc(1024, sizeof(char));
+
+    if (check_options(argc, argv, daemon_flag, config_file) == 1)
+    {
+        free_pointers(daemon_flag, config_file);
+        return 1;
+    }
+
+    if (check_action(daemon_flag))
+    {
+        free_pointers(daemon_flag, config_file);
         return 1;
     }
 
     struct config *config = parse_configuration(config_file);
+    if (!config && dry_run)
+    {
+        fprintf(stderr, "Configuration file is not valid\n");
+    }
+    if (!config)
+    {
+        free_pointers(daemon_flag, config_file);
+        return 2;
+    }
     /* In case of dry-run */
     if (dry_run)
     {
-        if (!config)
-        {
-            config_destroy(config);
-            fprintf(stderr, "Fail to parse configuration file %s\n",
-                    config_file);
-            ret = 2;
-        }
         config_destroy(config);
-        free(daemon_flag);
-        free(config_file);
-        return ret;
+        free_pointers(daemon_flag, config_file);
+        return 0;
     }
+
+    int ret = 0;
+    FILE *log_file;
     if (strlen(daemon_flag) > 0)
     {
-        ret = daemonize(daemon_flag, config);
+        log_file = get_log_file(config->log, true, config->log_file);
+        ret = daemonize(daemon_flag, config, log_file);
     }
     else
     {
-        start_server(config);
+        log_file = get_log_file(config->log, false, config->log_file);
+        start_server(config, log_file);
     }
 
+    fclose(log_file);
     config_destroy(config);
-    free(daemon_flag);
-    free(config_file);
+    free_pointers(daemon_flag, config_file);
     return ret;
 }

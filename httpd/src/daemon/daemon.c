@@ -39,13 +39,12 @@ static int get_pid_from_file(FILE *pid_file)
     return pid;
 }
 
-void sigint_handler(int sig)
+void sigint_handler(int sig __attribute__((unused)))
 {
-    (void)sig;
     _exit(EXIT_SUCCESS);
 }
 
-static int start_daemon(struct config *config, int exist)
+static int start_daemon(struct config *config, int exist, FILE *log_file)
 {
     FILE *pid_file;
     char *pid_file_path = config->pid_file;
@@ -74,7 +73,7 @@ static int start_daemon(struct config *config, int exist)
             return 1;
         }
         /* Child process: start the server */
-        return start_server(config);
+        return start_server(config, log_file);
     }
     else
     {
@@ -110,14 +109,14 @@ static int stop_daemon(const char *pid_file_path, int exist)
     return 0;
 }
 
-int daemonize(char *action, struct config *config)
+int daemonize(char *action, struct config *config, FILE *log_file)
 {
     int ret = 0;
     char *pid_file_path = config->pid_file;
     int exist = file_exists(pid_file_path);
     if (strcmp(action, "start") == 0)
     {
-        ret = start_daemon(config, exist);
+        ret = start_daemon(config, exist, log_file);
     }
     else if (strcmp(action, "stop") == 0)
     {
@@ -130,7 +129,8 @@ int daemonize(char *action, struct config *config)
     else if (strcmp(action, "restart") == 0)
     {
         stop_daemon(pid_file_path, exist);
-        ret = start_daemon(config, exist);
+        exist = file_exists(pid_file_path);
+        ret = start_daemon(config, exist, log_file);
     }
     return ret;
 }

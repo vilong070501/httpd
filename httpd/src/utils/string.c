@@ -34,7 +34,12 @@ struct string *string_create(const char *str, size_t size)
 
 int string_compare_n_str(const struct string *str1, const char *str2, size_t n)
 {
-    return memcmp(str1->data, str2, n);
+    for (size_t i = 0; i < n; i++)
+    {
+        if (str1->data[i] != str2[i])
+            return (str1->data[i] > str2[i]) ? 1 : -1;
+    }
+    return 0;
 }
 
 void string_concat_str(struct string *str, const char *to_concat, size_t size)

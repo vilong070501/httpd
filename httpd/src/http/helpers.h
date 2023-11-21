@@ -7,4 +7,4 @@ void print_request(struct request *req);
 void print_method(enum method method);
 void print_header(struct header *header);
 
-#endif
+#endif /* !HELPERS_H */
