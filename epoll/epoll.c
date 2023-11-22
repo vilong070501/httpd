@@ -13,8 +13,6 @@ int main(int argc, char **argv)
 {
     struct epoll_event event;
     struct epoll_event events_array[MAX_EVENTS];
-    int epoll_fd;
-    int fd;
     int event_count;
     ssize_t valread;
     char buffer[READ_SIZE + 1];
@@ -25,10 +23,10 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    fd = open(argv[1], O_RDWR);
-    epoll_fd = epoll_create1(0);
+    int fd = open(argv[1], O_RDONLY | O_NONBLOCK);
+    int epoll_fd = epoll_create1(0);
     event.data.fd = fd;
-    event.events = EPOLLIN;
+    event.events = EPOLLIN | EPOLLET;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event))
     {
         close(fd);
@@ -47,16 +45,23 @@ int main(int argc, char **argv)
         for (int i = 0; i < event_count; i++)
         {
             valread = read(fd, buffer, READ_SIZE);
-            buffer[valread] = '\0';
 
-            if (strcmp(buffer, "ping") == 0)
-                printf("pong!\n");
-            else if (strcmp(buffer, "pong") == 0)
-                printf("ping!\n");
-            else if (strcmp(buffer, "quit") == 0)
-                running = 0;
-            else
-                printf("Unknown: %s\n", buffer);
+            if (valread > 0)
+            {
+                buffer[valread] = '\0';
+                if (strcmp(buffer, "ping") == 0)
+                    printf("pong!\n");
+                else if (strcmp(buffer, "pong") == 0)
+                    printf("ping!\n");
+                else if (strcmp(buffer, "quit") == 0)
+                {
+                    printf("quit\n");
+                    running = 0;
+                }
+                else
+                    printf("Unknown: %s\n", buffer);
+                epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &event);
+            }
         }
     }
 
