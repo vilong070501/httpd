@@ -135,12 +135,10 @@ static struct request *receive_request(int communicate_fd, int *to_read)
     return req;
 }
 
-static struct response *build_and_send_response(struct request *req,
-                                                struct config *config,
-                                                int communicate_fd)
+static void build_and_send_response(struct request *req, struct response *resp,
+                                    int communicate_fd)
 {
     /* Build and send response to client */
-    struct response *resp = build_response(req, config);
     struct string *response = struct_response_to_string(resp);
     send(communicate_fd, response->data, response->size, 0);
 
@@ -158,7 +156,6 @@ static struct response *build_and_send_response(struct request *req,
 
     string_destroy(response);
     close(communicate_fd);
-    return resp;
 }
 
 static void read_body(int to_read, int communicate_fd)
@@ -232,10 +229,10 @@ int start_server(struct config *config, FILE *log_file)
 
         read_body(to_read, communicate_fd);
 
-        log_response(log_file, info);
-        struct response *resp =
-            build_and_send_response(req, config, communicate_fd);
+        struct response *resp = build_response(req, config);
         set_status_code(info, resp->status_code);
+        log_response(log_file, info);
+        build_and_send_response(req, resp, communicate_fd);
         free_request(req);
         free_response(resp);
         free_log_info(info);

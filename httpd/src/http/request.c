@@ -66,7 +66,7 @@ static int is_header_exist(const char *name, int len, struct header *headers)
     return exist;
 }
 
-int extract_headers(struct request *req, const char *raw_request, size_t len)
+int extract_headers(struct request *req, const char *raw_request, int len)
 {
     int total_len = 0;
     struct header *header = NULL;
@@ -81,8 +81,10 @@ int extract_headers(struct request *req, const char *raw_request, size_t len)
         }
 
         // Field-name
+
         int name_len = string_strcspn(raw_request, ":", len);
-        if (name_len <= 0 || raw_request[name_len - 1] == '0')
+        if (name_len <= 0 || name_len == len
+            || raw_request[name_len - 1] == '0')
         {
             return -1;
         }
