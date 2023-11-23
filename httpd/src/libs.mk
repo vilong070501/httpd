@@ -17,3 +17,6 @@ logger/liblogger.a:
 
 http/libhttp.a:
 	$(MAKE) -C $(SRC_DIR)http
+
+epoll/libepoll.a:
+	$(MAKE) -C $(SRC_DIR)epoll

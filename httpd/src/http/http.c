@@ -13,7 +13,7 @@
 #include "response.h"
 #include "utils/string.h"
 
-struct request *parse_request(const char *raw_request)
+struct request *parse_request(const char *raw_request, size_t len)
 {
     struct request *req = calloc(1, sizeof(struct request));
     if (!req)
@@ -22,41 +22,45 @@ struct request *parse_request(const char *raw_request)
     memset(req, 0, sizeof(struct request));
 
     /*  Extract method */
-    int method_len = extract_method(req, raw_request);
+    int method_len = extract_method(req, raw_request, len);
     raw_request += method_len + 1;
+    len = len - (method_len + 1);
     if (*raw_request == ' ')
         return NULL;
 
     /* Extract request target */
-    int target_len = extract_target(req, raw_request);
+    int target_len = extract_target(req, raw_request, len);
     if (target_len == -1)
     {
         free_request(req);
         return NULL;
     }
     raw_request += target_len + 1;
+    len = len - (target_len + 1);
     if (*raw_request == ' ')
         return NULL;
 
     /* Extract version */
-    int version_len = extract_version(req, raw_request);
+    int version_len = extract_version(req, raw_request, len);
     if (version_len == -1)
     {
         free_request(req);
         return NULL;
     }
     raw_request += version_len + 2;
+    len = len - (version_len + 2);
     if (*raw_request == ' ')
         return NULL;
 
     /* Extract headers */
-    int headers_len = extract_headers(req, raw_request);
+    int headers_len = extract_headers(req, raw_request, len);
     if (headers_len == -1)
     {
         free_request(req);
         return NULL;
     }
     raw_request += headers_len + 2;
+    len = len - (headers_len + 2);
 
     return req;
 }
@@ -85,17 +89,15 @@ void free_request(struct request *req)
 
 static int get_status_code(struct request *req, struct config *config)
 {
-    if (!check_method(req->method))
-        return 405;
-    if (!check_missing_header(req->headers, config))
-        return 400;
-    if (!check_version(req->version))
-        return 505;
-    int target_check = check_target(req, config);
-    if (target_check == -1)
-        return 404;
-    else if (target_check == 0)
-        return 403;
+    int status_code;
+    if ((status_code = check_method(req->method)) != 200)
+        return status_code;
+    if ((status_code = check_missing_header(req->headers, config)) != 200)
+        return status_code;
+    if ((status_code = check_version(req->version)) != 200)
+        return status_code;
+    if ((status_code = check_target(req, config)) != 200)
+        return status_code;
     return 200;
 }
 
@@ -121,13 +123,20 @@ static struct string *get_reason_phrase(int status_code)
 struct string *get_header(const char *header_name, struct header *headers)
 {
     struct header *tmp = headers;
+    char *lower_name = strdup(header_name);
+    for (size_t i = 0; i < strlen(lower_name); i++)
+    {
+        if (lower_name[i] >= 65 && lower_name[i] <= 90)
+            lower_name[i] += 32;
+    }
     while (tmp != NULL
-           && (tmp->field_name->size != strlen(header_name)
-               || string_compare_n_str(tmp->field_name, header_name,
+           && (tmp->field_name->size != strlen(lower_name)
+               || string_compare_n_str(tmp->field_name, lower_name,
                                        tmp->field_name->size)
                    != 0))
         tmp = tmp->next;
 
+    free(lower_name);
     if (!tmp)
         return NULL;
     return tmp->value;
@@ -150,7 +159,7 @@ struct response *build_response(struct request *req, struct config *config)
     resp->reason = get_reason_phrase(resp->status_code);
     /* Build headers */
     int content_length = 0;
-    if (req->method == GET)
+    if (req->method != UNSUPPORTED)
     {
         string_concat_str(req->target, "\0", 1);
         if (resp->status_code == 200)

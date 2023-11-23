@@ -5,6 +5,8 @@
 #define CRLF "\r\n"
 #define DCRLF "\r\n\r\n"
 
+#include <stddef.h>
+
 #include "config/config.h"
 #include "utils/string.h"
 
@@ -38,7 +40,7 @@ struct response
     struct header *headers;
 };
 
-struct request *parse_request(const char *raw_request);
+struct request *parse_request(const char *raw_request, size_t len);
 struct string *get_header(const char *header_name, struct header *headers);
 void free_header(struct header *header);
 void free_request(struct request *req);

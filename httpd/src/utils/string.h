@@ -44,4 +44,8 @@ void string_concat_str(struct string *str, const char *to_concat, size_t size);
 
 void string_destroy(struct string *str);
 
+char *string_strstr(struct string *str, const char *needle);
+size_t string_strcspn(const char *str, const char *reject, size_t len);
+void string_to_lower(struct string *str);
+
 #endif /* ! STRING_H */

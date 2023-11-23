@@ -9,6 +9,7 @@ LIBS = \
 	   server/libserver.a \
 	   logger/liblogger.a \
 	   http/libhttp.a \
+	   epoll/libepoll.a \
 
 SUBDIRS = \
 		  config \
@@ -17,6 +18,7 @@ SUBDIRS = \
 		  server \
 		  logger \
 		  http \
+		  epoll \
 
 all: httpd
 

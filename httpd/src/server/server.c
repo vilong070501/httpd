@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <sys/sendfile.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -27,7 +28,7 @@ static int signal_catched = 0;
 
 void signal_handler(int sig)
 {
-    if (sig == SIGINT || sig == SIGTSTP || sig == SIGPIPE)
+    if (sig == SIGINT || sig == SIGTSTP)
     {
         signal_catched = 1;
     }
@@ -96,19 +97,22 @@ static struct request *receive_request(int communicate_fd, int *to_read)
     /* Receive request from client */
     while ((valread = recv(communicate_fd, buffer, BUFFER_LENGTH, 0)))
     {
+        if (signal_catched)
+            break;
         string_concat_str(raw_request, buffer, valread);
         request_length += valread;
-        if ((tmp = strstr(raw_request->data, DCRLF)))
+        // if ((tmp = strstr(raw_request->data, DCRLF)))
+        if ((tmp = string_strstr(raw_request, DCRLF)))
         {
             int len = tmp - raw_request->data;
             string_concat_str(raw_request, "\0", 1);
-            req = parse_request(raw_request->data);
+            req = parse_request(raw_request->data, raw_request->size);
             if (!req)
             {
                 break;
             }
             struct string *content_length =
-                get_header("Content-Length", req->headers);
+                get_header("content-length", req->headers);
             if (content_length)
             {
                 if (string_compare_n_str(content_length, "0", 1) == 0)
@@ -141,7 +145,7 @@ static struct response *build_and_send_response(struct request *req,
     send(communicate_fd, response->data, response->size, 0);
 
     /* Send body content */
-    struct string *content_length = get_header("Content-length", resp->headers);
+    struct string *content_length = get_header("content-length", resp->headers);
     string_concat_str(content_length, "\0", 1);
     int file_len = atoi(content_length->data);
     if (file_len > 0 && resp->status_code == 200 && req->method == GET)
@@ -174,13 +178,21 @@ static void read_body(int to_read, int communicate_fd)
     }
 }
 
+static void handle_signal(void)
+{
+    struct sigaction sa = { 0 };
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTSTP, &sa, NULL);
+}
+
 int start_server(struct config *config, FILE *log_file)
 {
     int listen_fd = -1;
     int communicate_fd = -1;
     struct sockaddr client_addrinfo;
     socklen_t sin_size = sizeof(struct sockaddr);
-    struct sigaction sa = { 0 };
     int to_read = 0;
 
     listen_fd = get_server_and_bind(config->servers);
@@ -196,17 +208,14 @@ int start_server(struct config *config, FILE *log_file)
         return 1;
     }
 
-    sa.sa_handler = signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGINT, &sa, NULL);
-    sigaction(SIGTSTP, &sa, NULL);
+    handle_signal();
 
     while (1)
     {
         communicate_fd = accept(listen_fd, &client_addrinfo, &sin_size);
-        if (communicate_fd == -1)
+        if (communicate_fd == -1 && errno == EINTR)
         {
-            return 1;
+            return 0;
         }
 
         // If we catched a signal, break the lopp and clean up
@@ -219,14 +228,14 @@ int start_server(struct config *config, FILE *log_file)
         struct request *req = receive_request(communicate_fd, &to_read);
         struct log_info *info =
             build_log_info(config->servers->server_name, req, client_ip);
+        log_request(log_file, info);
 
         read_body(to_read, communicate_fd);
 
+        log_response(log_file, info);
         struct response *resp =
             build_and_send_response(req, config, communicate_fd);
         set_status_code(info, resp->status_code);
-        log_request(log_file, info);
-        log_response(log_file, info);
         free_request(req);
         free_response(resp);
         free_log_info(info);

@@ -42,6 +42,16 @@ int string_compare_n_str(const struct string *str1, const char *str2, size_t n)
     return 0;
 }
 
+static int my_memcmp(const char *str1, const char *str2, size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+    {
+        if (str1[i] != str2[i])
+            return (str1[i] > str2[i]) ? 1 : -1;
+    }
+    return 0;
+}
+
 void string_concat_str(struct string *str, const char *to_concat, size_t size)
 {
     if (!to_concat)
@@ -62,4 +72,59 @@ void string_destroy(struct string *str)
         return;
     free(str->data);
     free(str);
+}
+
+char *string_strstr(struct string *str, const char *needle)
+{
+    if (str->size < strlen(needle))
+        return NULL;
+
+    for (size_t i = 0; i < str->size - strlen(needle) + 1; i++)
+    {
+        if (my_memcmp(str->data + i, needle, strlen(needle)) == 0)
+            return str->data + i;
+    }
+    return NULL;
+}
+
+const char *string_strchr(const char *str, const char c)
+{
+    for (size_t i = 0; i < strlen(str); i++)
+    {
+        if (str[i] == c)
+            return str + i;
+    }
+    return NULL;
+}
+
+size_t string_strcspn(const char *str, const char *reject, size_t str_len)
+{
+    size_t result = 0;
+    // return 0 if any one is NULL
+    if ((!str) || (!reject))
+        return result;
+    for (size_t i = 0; i < str_len; i++)
+    {
+        if (string_strchr(reject, str[i]))
+        {
+            return result;
+        }
+        else
+        {
+            result++;
+        }
+    }
+    return result;
+}
+
+void string_to_lower(struct string *str)
+{
+    for (size_t i = 0; i < str->size; i++)
+    {
+        if (str->data[i] >= 65 && str->data[i] <= 90)
+        {
+            // It fails in the below assignment
+            str->data[i] += 32;
+        }
+    }
 }
