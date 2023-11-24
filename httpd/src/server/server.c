@@ -1,6 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -14,25 +13,20 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <wait.h>
 
 #include "config/config.h"
+#include "epoll/epoll.h"
 #include "http/helpers.h"
 #include "http/http.h"
 #include "http/response.h"
 #include "logger/logger.h"
+#include "server_helpers.h"
 
 #define BUFFER_LENGTH 1024
+#define MAX_EVENTS 10
 
 static int signal_catched = 0;
-
-void signal_handler(int sig)
-{
-    if (sig == SIGINT || sig == SIGTSTP)
-    {
-        signal_catched = 1;
-    }
-}
+static struct clients_queue *list = NULL;
 
 static int get_server_and_bind(struct server_config *servers)
 {
@@ -87,51 +81,56 @@ static int get_server_and_bind(struct server_config *servers)
 
 static struct request *receive_request(int communicate_fd, int *to_read)
 {
-    int request_length = 0;
     int body_length = 0;
     int valread = 0;
     char *tmp = NULL;
     struct request *req = NULL;
-    struct string *raw_request = string_create("", 0);
     char *buffer = calloc(BUFFER_LENGTH, sizeof(char));
     /* Receive request from client */
-    while ((valread = recv(communicate_fd, buffer, BUFFER_LENGTH, 0)))
+    valread = recv(communicate_fd, buffer, BUFFER_LENGTH, 0);
+    struct clients_queue *client = get_client(list, communicate_fd);
+    if (!client)
+        add_client_to_queue(&list, communicate_fd, buffer, valread);
+    else
     {
-        if (signal_catched)
-            break;
-        string_concat_str(raw_request, buffer, valread);
-        request_length += valread;
-        // if ((tmp = strstr(raw_request->data, DCRLF)))
-        if ((tmp = string_strstr(raw_request, DCRLF)))
+        string_concat_str(client->request, buffer, valread);
+    }
+
+    client = get_client(list, communicate_fd);
+    if (!client)
+    {
+        free(buffer);
+        return req;
+    }
+
+    if ((tmp = string_strstr(client->request, DCRLF)))
+    {
+        int len = tmp - client->request->data;
+        req = parse_request(client->request->data, client->request->size);
+        if (!req)
         {
-            int len = tmp - raw_request->data;
-            string_concat_str(raw_request, "\0", 1);
-            req = parse_request(raw_request->data, raw_request->size);
-            if (!req)
+            free(buffer);
+            return req;
+        }
+        struct string *content_length =
+            get_header("Content-Length", req->headers);
+        if (content_length)
+        {
+            if (string_compare_n_str(content_length, "0", 1) == 0)
+                body_length = 0;
+            else
             {
-                break;
+                struct string *length =
+                    string_create(content_length->data, content_length->size);
+                string_concat_str(length, "\0", 1);
+                body_length = atoi(length->data);
+                string_destroy(length);
             }
-            struct string *content_length =
-                get_header("content-length", req->headers);
-            if (content_length)
-            {
-                if (string_compare_n_str(content_length, "0", 1) == 0)
-                    body_length = 0;
-                else
-                {
-                    struct string *len = string_create(content_length->data,
-                                                       content_length->size);
-                    string_concat_str(len, "\0", 1);
-                    body_length = atoi(len->data);
-                    string_destroy(len);
-                }
-                *to_read = body_length - (request_length - (len + 4));
-            }
-            break;
+            *to_read = body_length - (client->request->size - (len + 4));
         }
     }
+
     free(buffer);
-    string_destroy(raw_request);
     return req;
 }
 
@@ -158,20 +157,38 @@ static void build_and_send_response(struct request *req, struct response *resp,
     close(communicate_fd);
 }
 
-static void read_body(int to_read, int communicate_fd)
+static void read_body(int *to_read, int communicate_fd)
 {
-    size_t valread;
-    if (to_read > 0)
+    int valread;
+    if (*to_read > 0)
     {
-        char *buffer = calloc(to_read + 1, sizeof(char));
-        while (to_read > 0)
+        char *buffer = calloc(*to_read + 1, sizeof(char));
+        valread = recv(communicate_fd, buffer, *to_read, 0);
+        if (valread > 0)
         {
-            if (signal_catched)
-                break;
-            valread = recv(communicate_fd, buffer, to_read, 0);
-            to_read -= valread;
+            *to_read -= valread;
         }
         free(buffer);
+    }
+}
+
+int client_hangup(int fd, int epoll_fd, int events)
+{
+    if (events & (EPOLLRDHUP | EPOLLHUP))
+    {
+        //printf("Client connection closed\n");
+        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+        close(fd);
+        return 1;
+    }
+    return 0;
+}
+
+void signal_handler(int sig)
+{
+    if (sig == SIGINT || sig == SIGTSTP)
+    {
+        signal_catched = 1;
     }
 }
 
@@ -184,59 +201,99 @@ static void handle_signal(void)
     sigaction(SIGTSTP, &sa, NULL);
 }
 
+int setup_epoll(int server_fd)
+{
+    set_nonblocking(server_fd);
+
+    if (listen(server_fd, 10) == -1)
+    {
+        // fprintf(stderr, "listen failed\n");
+        return -1;
+    }
+
+    handle_signal();
+
+    int epoll_fd = epoll_create1(0);
+    if (epoll_ctl_add(epoll_fd, server_fd, EPOLLIN | EPOLLOUT | EPOLLET) == -1)
+    {
+        close(server_fd);
+        close(epoll_fd);
+        return -1;
+    }
+    return epoll_fd;
+}
+
 int start_server(struct config *config, FILE *log_file)
 {
-    int listen_fd = -1;
-    int communicate_fd = -1;
     struct sockaddr client_addrinfo;
-    socklen_t sin_size = sizeof(struct sockaddr);
+    struct epoll_event events_array[MAX_EVENTS];
     int to_read = 0;
 
-    listen_fd = get_server_and_bind(config->servers);
+    int listen_fd = get_server_and_bind(config->servers);
     if (listen_fd == -1)
     {
         // fprintf(stderr, "Server failed to bind\n");
         return 1;
     }
 
-    if (listen(listen_fd, 10) == -1)
-    {
-        // fprintf(stderr, "listen failed\n");
+    int epoll_fd = setup_epoll(listen_fd);
+    if (epoll_fd == -1)
         return 1;
-    }
-
-    handle_signal();
 
     while (1)
     {
-        communicate_fd = accept(listen_fd, &client_addrinfo, &sin_size);
-        if (communicate_fd == -1 && errno == EINTR)
+        int nfds = epoll_wait(epoll_fd, events_array, MAX_EVENTS, -1);
+
+        for (int i = 0; i < nfds; i++)
         {
-            return 0;
+            if (events_array[i].events == EPOLLIN)
+            {
+                int event_fd = events_array[i].data.fd;
+                if (event_fd == listen_fd)
+                {
+                    accept_connections(listen_fd, &client_addrinfo, epoll_fd);
+                }
+                else
+                {
+                    struct request *req = receive_request(event_fd, &to_read);
+
+                    /* Read the incoming body */
+                    read_body(&to_read, event_fd);
+
+                    struct clients_queue *client = get_client(list, event_fd);
+                    if (client != NULL && string_strstr(client->request, DCRLF)
+                        && to_read <= 0)
+                    {
+                        /* Logging and send response */
+                        struct log_info *info =
+                            get_logger_instance(config, req, &client_addrinfo);
+                        /* Log complete request */
+                        log_request(log_file, info);
+
+                        /* Build response */
+                        struct response *resp = build_response(req, config);
+                        set_status_code(info, resp->status_code);
+
+                        /* Log response */
+                        log_response(log_file, info);
+
+                        /* Build and send response to client */
+                        build_and_send_response(req, resp, event_fd);
+
+                        remove_client(&list, event_fd);
+                        cleanup_resources(event_fd, epoll_fd, resp, info);
+                    }
+                    free_request(req);
+                }
+            }
+            if (client_hangup(events_array[i].data.fd, epoll_fd,
+                              events_array[i].events))
+                continue;
         }
-
-        // If we catched a signal, break the lopp and clean up
-
-        void *tmp = &client_addrinfo;
-        struct sockaddr_in *addr = tmp;
-        char client_ip[1024] = { 0 };
-        inet_ntop(AF_INET, &addr->sin_addr, client_ip, INET_ADDRSTRLEN);
-
-        struct request *req = receive_request(communicate_fd, &to_read);
-        struct log_info *info =
-            build_log_info(config->servers->server_name, req, client_ip);
-        log_request(log_file, info);
-
-        read_body(to_read, communicate_fd);
-
-        struct response *resp = build_response(req, config);
-        set_status_code(info, resp->status_code);
-        log_response(log_file, info);
-        build_and_send_response(req, resp, communicate_fd);
-        free_request(req);
-        free_response(resp);
-        free_log_info(info);
+        // SIGINT or SIGTSTP catched
+        if (signal_catched == 1)
+            break;
     }
-    close(listen_fd);
+    final_cleanup(list, listen_fd, epoll_fd);
     return 0;
 }

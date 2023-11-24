@@ -1,7 +1,17 @@
 #include "string.h"
 
 #include <stdlib.h>
-#include <string.h>
+
+static size_t my_strlen(const char *str)
+{
+    if (!str)
+        return 0;
+
+    size_t i = 0;
+    for (; str[i]; i++)
+        ;
+    return i;
+}
 
 struct string *string_create(const char *str, size_t size)
 {
@@ -76,12 +86,12 @@ void string_destroy(struct string *str)
 
 char *string_strstr(struct string *str, const char *needle)
 {
-    if (str->size < strlen(needle))
+    if (str->size < my_strlen(needle))
         return NULL;
 
-    for (size_t i = 0; i < str->size - strlen(needle) + 1; i++)
+    for (size_t i = 0; i < str->size - my_strlen(needle) + 1; i++)
     {
-        if (my_memcmp(str->data + i, needle, strlen(needle)) == 0)
+        if (my_memcmp(str->data + i, needle, my_strlen(needle)) == 0)
             return str->data + i;
     }
     return NULL;
@@ -89,7 +99,7 @@ char *string_strstr(struct string *str, const char *needle)
 
 const char *string_strchr(const char *str, const char c)
 {
-    for (size_t i = 0; i < strlen(str); i++)
+    for (size_t i = 0; i < my_strlen(str); i++)
     {
         if (str[i] == c)
             return str + i;

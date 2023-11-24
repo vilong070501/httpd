@@ -66,6 +66,45 @@ static int is_header_exist(const char *name, int len, struct header *headers)
     return exist;
 }
 
+int check_header_name(struct header *header)
+{
+    if (!header->field_name
+        || string_strcspn(header->field_name->data, " ",
+                          header->field_name->size)
+            != header->field_name->size)
+    {
+        string_destroy(header->field_name);
+        free(header);
+        return -1;
+    }
+    return 0;
+}
+
+int check_header_value(struct header *header)
+{
+    if (!header->value)
+    {
+        string_destroy(header->field_name);
+        string_destroy(header->value);
+        free(header);
+        return -1;
+    }
+    return 1;
+}
+
+static int compute_value_without_space(const char *raw_request, int value_len)
+{
+    int value_without_space_len = 0;
+    while (value_without_space_len < value_len)
+    {
+        if (raw_request[value_without_space_len] != ' ')
+            value_without_space_len++;
+        else
+            break;
+    }
+    return value_without_space_len;
+}
+
 int extract_headers(struct request *req, const char *raw_request, int len)
 {
     int total_len = 0;
@@ -86,16 +125,20 @@ int extract_headers(struct request *req, const char *raw_request, int len)
         if (name_len <= 0 || name_len == len
             || raw_request[name_len - 1] == '0')
         {
+            free(header);
             return -1;
         }
+        // Check header field_name
         header->field_name = string_create(raw_request, name_len);
-        if (!header->field_name)
-        {
+        if (check_header_name(header) == -1)
             return -1;
-        }
         string_to_lower(header->field_name);
         if (is_header_exist(header->field_name->data, name_len, last))
+        {
+            string_destroy(header->field_name);
+            free(header);
             return -1;
+        }
         raw_request += name_len + 1;
         len = len - (name_len + 1);
         total_len += name_len + 1;
@@ -105,23 +148,16 @@ int extract_headers(struct request *req, const char *raw_request, int len)
         {
             raw_request++;
             total_len++;
+            len--;
         }
 
         // Value
         int value_len = string_strcspn(raw_request, CRLF, len);
-        int value_without_space_len = 0;
-        while (value_without_space_len < value_len)
-        {
-            if (raw_request[value_without_space_len] != ' ')
-                value_without_space_len++;
-            else
-                break;
-        }
-        header->value = string_create(raw_request, value_without_space_len);
-        if (!header->value)
-        {
+        int val_no_sp = compute_value_without_space(raw_request, value_len);
+        // Check header value
+        header->value = string_create(raw_request, val_no_sp);
+        if (check_header_value(header) == -1)
             return -1;
-        }
         raw_request += value_len + 2;
         len = len - (value_len + 2);
         total_len += value_len + 2;

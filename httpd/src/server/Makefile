@@ -1,7 +1,7 @@
 include ../flags.mk
 
 MODULE = server
-OBJ = $(MODULE).o
+OBJ = $(MODULE).o server_helpers.o
 LIB = lib$(MODULE).a
 
 LIBS = # Other modules your library may be dependent on
