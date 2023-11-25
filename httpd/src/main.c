@@ -158,7 +158,7 @@ int main(int argc, char **argv)
         ret = start_server(config, log_file);
     }
 
-    if (log_file !=  NULL && log_file != stdout)
+    if (log_file != NULL && log_file != stdout)
         fclose(log_file);
     config_destroy(config);
     free_pointers(daemon_flag, config_file);

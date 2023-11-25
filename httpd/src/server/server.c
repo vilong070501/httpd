@@ -176,7 +176,7 @@ int client_hangup(int fd, int epoll_fd, int events)
 {
     if (events & (EPOLLRDHUP | EPOLLHUP))
     {
-        //printf("Client connection closed\n");
+        // printf("Client connection closed\n");
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
         close(fd);
         return 1;
@@ -214,7 +214,7 @@ int setup_epoll(int server_fd)
     handle_signal();
 
     int epoll_fd = epoll_create1(0);
-    if (epoll_ctl_add(epoll_fd, server_fd, EPOLLIN | EPOLLOUT | EPOLLET) == -1)
+    if (epoll_ctl_add(epoll_fd, server_fd, EPOLLIN) == -1)
     {
         close(server_fd);
         close(epoll_fd);
@@ -288,7 +288,9 @@ int start_server(struct config *config, FILE *log_file)
             }
             if (client_hangup(events_array[i].data.fd, epoll_fd,
                               events_array[i].events))
+            {
                 continue;
+            }
         }
         // SIGINT or SIGTSTP catched
         if (signal_catched == 1)

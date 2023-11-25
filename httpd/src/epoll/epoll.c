@@ -59,8 +59,6 @@ struct clients_queue *get_client(struct clients_queue *list, int fd)
     struct clients_queue *tmp = list;
     while (tmp != NULL && tmp->fd != fd)
         tmp = tmp->next;
-    if (!tmp)
-        return NULL;
     return tmp;
 }
 
@@ -78,22 +76,29 @@ void remove_client(struct clients_queue **list, int fd)
 {
     if (!*list)
         return;
+
+    struct clients_queue *tmp = *list;
+
     if ((*list)->fd == fd)
     {
-        free_queue(*list);
-        *list = NULL;
+        *list = (*list)->next;
+        tmp->next = NULL;
+        free_queue(tmp);
     }
     else
     {
-        struct clients_queue *tmp = (*list)->next;
-        while (tmp != NULL && tmp->next != NULL && tmp->next->fd != fd)
-            tmp = tmp->next;
-
-        if (tmp->next != NULL && tmp->next->fd == fd)
+        struct clients_queue *prev = NULL;
+        while (tmp != NULL && tmp->fd != fd)
         {
-            struct clients_queue *delete = tmp->next;
-            tmp->next = tmp->next->next;
-            free_queue(delete);
+            prev = tmp;
+            tmp = tmp->next;
         }
+
+        if (tmp == NULL)
+            return;
+
+        prev->next = tmp->next;
+        tmp->next = NULL;
+        free_queue(tmp);
     }
 }
